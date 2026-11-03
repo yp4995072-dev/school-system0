@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ Thống Phản Ánh & Quản Lý Sự Cố - THCS & THPT Khánh Hưng</title>
+    <style>
+        :root { --primary: #1a365d; --secondary: #2b6cb0; --accent: #e53e3e; --bg: #f7fafc; }
+        body { margin: 0; font-family: system-ui, sans-serif; background: var(--bg); display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        header { background: var(--primary); color: white; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .nav-tabs { display: flex; gap: 10px; }
+        .nav-btn { background: rgba(255,255,255,0.15); color: white; border: none; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 13px; }
+        .nav-btn.active { background: var(--secondary); box-shadow: inset 0 2px 4px rgba(0,0,0,0.2); }
+        .announcement-banner { background: #fffaf0; color: #c05621; padding: 8px 20px; font-size: 13px; border-bottom: 1px solid #feebc8; display: flex; justify-content: space-between; align-items: center; }
+        .main-container { display: grid; grid-template-columns: 1fr 380px; flex-grow: 1; overflow: hidden; }
+        .map-section { background: #edf2f7; position: relative; overflow: auto; display: flex; justify-content: center; align-items: center; padding: 15px; }
+        .map-svg { width: 100%; height: 100%; max-width: 850px; max-height: 550px; background: white; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        .sidebar { background: white; border-left: 1px solid #e2e8f0; display: flex; flex-direction: column; height: 100%; overflow: hidden; padding: 15px; box-sizing: border-box; }
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: flex; justify-content: center; align-items: center; z-index: 9999; }
+        .modal-card { background: white; padding: 25px; border-radius: 10px; width: 340px; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
+        .modal-card input { width: 100%; padding: 10px; margin: 12px 0; border: 1px solid #cbd5e0; border-radius: 6px; box-sizing: border-box; text-align: center; }
+        .modal-card button { width: 100%; padding: 10px; background: var(--secondary); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        .form-group { margin-bottom: 12px; }
+        label { font-size: 12px; font-weight: bold; color: #4a5568; display: block; margin-bottom: 4px; }
+        input, select, textarea { width: 100%; padding: 8px 10px; border: 1px solid #cbd5e0; border-radius: 6px; box-sizing: border-box; font-size: 13px; }
+        .btn-action { background: var(--accent); color: white; border: none; padding: 10px; border-radius: 6px; font-weight: bold; width: 100%; cursor: pointer; }
+        .btn-action:hover { background: #c53030; }
+        .report-card { background: #fff; border: 1px solid #e2e8f0; border-left: 4px solid var(--accent); padding: 10px; border-radius: 6px; margin-bottom: 10px; }
+        .report-card.status-processing { border-left-color: #d69e2e; }
+        .report-card.status-resolved { border-left-color: #38a169; }
+        #toast { position: fixed; bottom: 20px; right: 20px; background: #2f855a; color: white; padding: 12px 20px; border-radius: 6px; display: none; box-shadow: 0 4px 10px rgba(0,0,0,0.2); font-weight: bold; z-index: 1000; }
+    </style>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+</head>
+<body>
+    <div id="auth-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-card">
+            <h2>🔒 Đăng Nhập BGH</h2>
+            <p style="font-size: 12px; color: #666;">Nhập mật khẩu quản trị (Mặc định: bghkhanghung2026)</p>
+            <input type="password" id="admin-pass" placeholder="Mật khẩu quản trị">
+            <button onclick="loginAdmin()">Truy Cập Quản Trị</button>
+            <button onclick="switchTab('student')" style="background:#718096; margin-top:8px;">Quay lại Trang Học Sinh</button>
+            <div id="auth-error" style="color:red; font-size:12px; display:none; margin-top:8px;">Mật khẩu không đúng!</div>
+        </div>
+    </div>
+    <div id="password-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-card">
+            <h2>⚙️ Đổi Mật Khẩu BGH</h2>
+            <input type="password" id="new-pass" placeholder="Nhập mật khẩu mới...">
+            <button onclick="saveNewPassword()">Lưu Mật Khẩu</button>
+            <button onclick="closePasswordModal()" style="background:#718096; margin-top:8px;">Hủy</button>
+        </div>
+    </div>
+    <header>
+        <div>
+            <h3 style="margin:0; font-size: 15px;">TRƯỜNG THCS & THPT KHÁNH HƯNG</h3>
+            <small style="font-size: 11px; opacity: 0.8;">Hệ Thống Báo Cáo Ẩn Danh & Đồng Bộ Đám Mây</small>
+        </div>
+        <div class="nav-tabs">
+            <button class="nav-btn active" id="btn-student" onclick="switchTab('student')">👨‍🎓 Trang Học Sinh</button>
+            <button class="nav-btn" id="btn-admin" onclick="tryOpenAdmin()">🔒 Ban Giám Hiệu</button>
+        </div>
+    </header>
+    <div class="announcement-banner">
+        <span>📢 <strong>Bảng Tin Trường:</strong> <span id="announcement-text">Đang tải thông báo...</span></span>
+        <span id="admin-notice-controls" style="display:none;">
+            <button onclick="editAnnouncement()" style="font-size:11px; padding:2px 6px; cursor:pointer;">Sửa Bảng Tin</button>
+        </span>
+    </div>
+    <div class="main-container">
+        <div class="map-section">
+            <svg class="map-svg" viewBox="0 0 800 500" onclick="handleMapClick(event)">
+                <rect width="800" height="500" fill="#f8fafc" rx="10"/>
+                <rect x="30" y="30" width="740" height="440" fill="#edf2f7" rx="8" stroke="#cbd5e0" stroke-width="2"/>
+                <rect x="220" y="150" width="360" height="220" fill="#c6f6d5" rx="6"/>
+                <text x="400" y="265" font-size="14" fill="#22543d" font-weight="bold" text-anchor="middle">SÂN TRƯỜNG & KHU SINH HOẠT</text>
+                <rect x="50" y="50" width="320" height="80" fill="#ebf8ff" stroke="#3182ce" stroke-width="2" rx="4"/>
+                <text x="210" y="95" font-size="13" fill="#2b6cb0" font-weight="bold" text-anchor="middle">KHỐI A: BGH & THPT</text>
+                <rect x="430" y="50" width="320" height="80" fill="#fffaf0" stroke="#dd6b20" stroke-width="2" rx="4"/>
+                <text x="590" y="95" font-size="13" fill="#c05621" font-weight="bold" text-anchor="middle">KHỐI B: PHÒNG HỌC THCS</text>
+                <rect x="50" y="390" width="250" height="60" fill="#f0fff4" stroke="#38a169" stroke-width="2" rx="4"/>
+                <text x="175" y="425" font-size="12" fill="#276749" font-weight="bold" text-anchor="middle">NHÀ THỂ THAO ĐA NĂNG</text>
+                <rect x="500" y="390" width="250" height="60" fill="#fff5f5" stroke="#e53e3e" stroke-width="2" rx="4"/>
+                <text x="625" y="425" font-size="12" fill="#9b2c2c" font-weight="bold" text-anchor="middle">CĂNG TIN & WC</text>
+                <g id="map-pins"></g>
+            </svg>
+        </div>
+        <div class="sidebar" id="sidebar-content"></div>
+    </div>
+    <div id="toast">Thông báo thành công!</div>
+    <script>
+        const firebaseConfig = { databaseURL: "https://khanghung-incident-default-rtdb.firebaseio.com/" };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+        let currentTab = 'student';
+        let isAdminLoggedIn = sessionStorage.getItem("kh_admin_auth") === "true";
+        let currentPos = { x: 400, y: 250 };
+        let reports = [];
+        let currentAnnouncement = "Chào mừng học sinh và thầy cô đến với cổng phản ánh an toàn học đường Khánh Hưng!";
+        db.ref('reports').on('value', (snapshot) => {
+            const data = snapshot.val();
+            reports = data ? Object.values(data).sort((a,b) => b.id - a.id) : [];
+            renderMapPins();
+            if(currentTab === 'student') renderMyReports();
+            if(currentTab === 'admin') renderAdminReports();
+        });
+        db.ref('announcement').on('value', (snapshot) => {
+            const val = snapshot.val();
+            if(val) { currentAnnouncement = val; document.getElementById("announcement-text").innerText = val; }
+        });
+        db.ref('adminPassword').on('value', (snapshot) => {
+            const val = snapshot.val();
+            if(val) localStorage.setItem("kh_admin_password", val);
+        });
+        function switchTab(tab) {
+            currentTab = tab;
+            document.getElementById("btn-student").classList.toggle("active", tab === 'student');
+            document.getElementById("btn-admin").classList.toggle("active", tab === 'admin');
+            if(tab === 'admin' && !isAdminLoggedIn) { document.getElementById("auth-modal").style.display = "flex"; return; }
+            document.getElementById("auth-modal").style.display = "none";
+            renderSidebar();
+            renderMapPins();
+        }
+        function tryOpenAdmin() {
+            if(isAdminLoggedIn) { switchTab('admin'); } else { document.getElementById("auth-modal").style.display = "flex"; }
+        }
+        function loginAdmin() {
+            const pass = document.getElementById("admin-pass").value;
+            const savedPass = localStorage.getItem("kh_admin_password") || "bghkhanghung2026";
+            if(pass === savedPass) {
+                isAdminLoggedIn = true;
+                sessionStorage.setItem("kh_admin_auth", "true");
+                document.getElementById("auth-modal").style.display = "none";
+                document.getElementById("admin-pass").value = "";
+                switchTab('admin');
+            } else { document.getElementById("auth-error").style.display = "block"; }
+        }
+        function editAnnouncement() {
+            const newAnnounce = prompt("Nhập nội dung thông báo mới cho trường:", currentAnnouncement);
+            if(newAnnounce) { db.ref('announcement').set(newAnnounce); showToast("Đã cập nhật bảng tin trường!"); }
+        }
+        function openPasswordModal() { document.getElementById("password-modal").style.display = "flex"; }
+        function closePasswordModal() { document.getElementById("password-modal").style.display = "none"; }
+        function saveNewPassword() {
+            const p = document.getElementById("new-pass").value;
+            if(p) { db.ref('adminPassword').set(p); showToast("Đổi mật khẩu thành công!"); closePasswordModal(); }
+        }
+        function handleMapClick(e) {
+            const svg = e.currentTarget;
+            const rect = svg.getBoundingClientRect();
+            const x = Math.round((e.clientX - rect.left) * (800 / rect.width));
+            const y = Math.round((e.clientY - rect.top) * (500 / rect.height));
+            currentPos = { x, y };
+            let locName = "Sân trường / Khu chung";
+            if (y < 150 && x < 400) locName = "Khối A (THPT & BGH)";
+            else if (y < 150 && x >= 400) locName = "Khối B (THCS)";
+            else if (y > 350 && x < 350) locName = "Nhà Thể Thao Đa Năng";
+            else if (y > 350 && x >= 350) locName = "Căng Tin & Vệ Sinh";
+            if(currentTab === 'student') { const inputLoc = document.getElementById("location-name"); if(inputLoc) inputLoc.value = locName; }
+            renderMapPins();
+        }
+        function renderMapPins() {
+            const pinsContainer = document.getElementById("map-pins");
+            if(!pinsContainer) return;
+            pinsContainer.innerHTML = `<circle cx="${currentPos.x}" cy="${currentPos.y}" r="8" fill="#e53e3e" stroke="white" stroke-width="2"><animate attributeName="r" values="6;10;6" dur="1.5s" repeatCount="indefinite"/></circle>`;
+            if(currentTab === 'admin') {
+                reports.forEach(rep => {
+                    const color = rep.status === 'resolved' ? '#38a169' : (rep.status === 'processing' ? '#d69e2e' : '#e53e3e');
+                    const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                    c.setAttribute("cx", rep.x); c.setAttribute("cy", rep.y); c.setAttribute("r", "7");
+                    c.setAttribute("fill", color); c.setAttribute("stroke", "white"); c.setAttribute("stroke-width", "2");
+                    pinsContainer.appendChild(c);
+                });
+            }
+        }
+        function renderSidebar() {
+            const sidebar = document.getElementById("sidebar-content");
+            if(currentTab === 'student') {
+                sidebar.innerHTML = `
+                    <div style="font-size: 13px; background: #ebf8ff; color: #2b6cb0; padding: 10px; border-radius: 6px; margin-bottom: 12px; border-left: 3px solid #3182ce;">
+                        🔒 <strong>Ẩn danh 100%:</strong> Gửi báo cáo đồng bộ trực tiếp tới BGH.
+                    </div>
+                    <form onsubmit="submitReport(event)" style="display:flex; flex-direction:column; gap:10px; overflow-y:auto; flex-grow:1;">
+                        <div class="form-group">
+                            <label>Loại sự cố:</label>
+                            <select id="category">
+                                <option value="Cơ sở vật chất">Cơ sở vật chất (Bàn ghế, điện, nước...)</option>
+                                <option value="An toàn học đường">An toàn học đường / Mâu thuẫn</option>
+                                <option value="Vệ sinh môi trường">Vệ sinh môi trường</option>
+                                <option value="Khác">Phản ánh khác</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Vị trí (Nhấp chọn trên bản đồ):</label>
+                            <input type="text" id="location-name" value="Sân trường / Khu chung" required readonly>
+                        </div>
+                        <div class="form-group">
+                            <label>Mô tả chi tiết sự cố:</label>
+                            <textarea id="message" rows="4" placeholder="Mô tả cụ thể sự cố..." required oninput="document.getElementById('char-count').innerText = this.value.length + '/500'"></textarea>
+                            <div style="font-size:10px; text-align:right; color:#718096;" id="char-count">0/500</div>
+                        </div>
+                        <button type="submit" class="btn-action">🚀 Gửi Báo Cáo Ẩn Danh</button>
+                    </form>
+                    <div style="margin-top:15px; border-top:1px solid #e2e8f0; padding-top:10px;">
+                        <h4 style="margin:0 0 8px 0; font-size:12px;">📋 Trạng Thái Báo Cáo Của Tôi:</h4>
+                        <div id="my-reports-list" style="max-height:140px; overflow-y:auto; font-size:11px;"></div>
+                    </div>
+                `;
+                renderMyReports();
+            } else {
+                document.getElementById("admin-notice-controls").style.display = "block";
+                sidebar.innerHTML = `
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                        <span style="font-weight:bold; font-size:13px;">📋 Quản Lý Báo Cáo (${reports.length})</span>
+                        <button onclick="openPasswordModal()" style="font-size:11px; padding:4px 8px; background:#2b6cb0; color:white; border:none; border-radius:4px; cursor:pointer;">⚙️ Đổi Mật Khẩu</button>
+                    </div>
+                    <div style="overflow-y:auto; flex-grow:1;" id="admin-reports-list"></div>
+                `;
+                renderAdminReports();
+            }
+        }
+        function submitReport(e) {
+            e.preventDefault();
+            const reportId = 'rep_' + Date.now();
+            const newRep = {
+                id: Date.now(),
+                category: document.getElementById("category").value,
+                locationName: document.getElementById("location-name").value,
+                message: document.getElementById("message").value,
+                x: currentPos.x, y: currentPos.y,
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' ' + new Date().toLocaleDateString(),
+                status: 'pending'
+            };
+            db.ref('reports/' + reportId).set(newRep);
+            document.getElementById("message").value = "";
+            showToast("🚀 Gửi báo cáo thành công lên hệ thống trường!");
+        }
+        function renderMyReports() {
+            const list = document.getElementById("my-reports-list");
+            if(!list) return;
+            if(reports.length === 0) { list.innerHTML = `<span style="color:#a0aec0;">Chưa có báo cáo nào trên hệ thống.</span>`; return; }
+            list.innerHTML = reports.slice(0, 3).map(r => `
+                <div style="background:#f7fafc; padding:6px; border-radius:4px; margin-bottom:6px; border-left:3px solid ${r.status==='resolved'?'#38a169':(r.status==='processing'?'#d69e2e':'#e53e3e')}">
+                    <b>${r.category}</b> - <i>${r.locationName}</i><br>
+                    Trạng thái: <b>${r.status==='resolved'?'🟢 Đã giải quyết':(r.status==='processing'?'🟡 Đang xử lý':'🔴 Chờ xử lý')}</b>
+                </div>
+            `).join('');
+        }
+        function renderAdminReports() {
+            const list = document.getElementById("admin-reports-list");
+            if(!list) return;
+            if(reports.length === 0) { list.innerHTML = `<div style="color:#a0aec0; text-align:center; margin-top:20px; font-size:12px;">Chưa có báo cáo nào từ học sinh.</div>`; return; }
+            list.innerHTML = reports.map((rep) => `
+                <div class="report-card status-${rep.status}">
+                    <div style="font-size:10px; color:#a0aec0; display:flex; justify-content:space-between;">
+                        <span>📂 ${rep.category}</span>
+                        <span>${rep.time}</span>
+                    </div>
+                    <div style="font-weight:bold; font-size:13px; margin:4px 0;">📍 ${rep.locationName}</div>
+                    <div style="font-size:12px; color:#4a5568; margin-bottom:6px;">${rep.message}</div>
+                    <select onchange="updateStatus('${rep.id}', this.value)" style="font-size:11px; padding:3px;">
+                        <option value="pending" ${rep.status==='pending'?'selected':''}>🔴 Chờ xử lý</option>
+                        <option value="processing" ${rep.status==='processing'?'selected':''}>🟡 Đang xử lý</option>
+                        <option value="resolved" ${rep.status==='resolved'?'selected':''}>🟢 Đã giải quyết</option>
+                    </select>
+                </div>
+            `).join('');
+        }
+        function updateStatus(id, status) {
+            db.ref('reports').orderByChild('id').equalTo(Number(id)).once('child_added', (snapshot) => {
+                snapshot.ref.update({ status: status });
+                showToast("Đã cập nhật trạng thái đồng bộ!");
+            });
+        }
+        function showToast(text) {
+            const t = document.getElementById("toast");
+            t.innerText = text;
+            t.style.display = "block";
+            setTimeout(() => t.style.display = "none", 3000);
+        }
+        renderSidebar();
+        renderMapPins();
+    </script>
+</body>
+</html>
